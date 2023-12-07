@@ -1,5 +1,5 @@
 import torch 
-
+import numpy as np 
 
 def normalize_bbox(bboxes, pc_range):
 
@@ -28,7 +28,13 @@ def denormalize_bbox(normalized_bboxes, pc_range):
     rot_sine = normalized_bboxes[..., 6:7]
 
     rot_cosine = normalized_bboxes[..., 7:8]
-    rot = torch.atan2(rot_sine, rot_cosine)
+    # rot = torch.atan2(rot_sine, rot_cosine)
+    rot = (
+            (
+                torch.atan((rot_sine / (rot_cosine + 1e-8)).sigmoid())
+                + ((1 - torch.sign(rot_cosine)) / 2) * torch.sign(rot_sine) * np.pi
+            )
+    )
 
     # center in the bev
     cx = normalized_bboxes[..., 0:1]

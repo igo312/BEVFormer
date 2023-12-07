@@ -56,6 +56,42 @@ class BEVFormerEncoder(TransformerLayerSequence):
             Tensor: reference points used in decoder, has \
                 shape (bs, num_keys, num_levels, 2).
         """
+ 
+        # reference points in 3D space, used in spatial cross-attention (SCA)
+        if dim == '3d':
+            zs = torch.cat((torch.arange(0.5,Z-0.5,(Z-1)/(num_points_in_pillar-1)), torch.Tensor([Z-0.5])),dim=0).view(-1, 1, 1).expand(num_points_in_pillar, H, W) / Z
+            xs = torch.cat((torch.arange(0.5, W-0.5, (W-1)/(W-1)), torch.Tensor([W-0.5])),dim=0).view(1, 1, W).expand(num_points_in_pillar, H, W) / W
+            ys = torch.cat((torch.arange(0.5, H-0.5, (H-1)/(H-1)), torch.Tensor([H-0.5])),dim=0).view(1, H, 1).expand(num_points_in_pillar, H, W) / H
+            ref_3d = torch.stack((xs, ys, zs), -1)
+            ref_3d = ref_3d.permute(0, 3, 1, 2).flatten(2).permute(0, 2, 1)
+            ref_3d = ref_3d[None].repeat(bs, 1, 1, 1)
+            return ref_3d
+ 
+        # reference points on 2D bev plane, used in temporal self-attention (TSA).
+        elif dim == '2d':
+            ref_y, ref_x = torch.meshgrid(
+                torch.cat((torch.arange(0.5, H-0.5, (H-1)/(H-1)), torch.Tensor([H-0.5])),dim=0),
+                torch.cat((torch.arange(0.5, W-0.5, (W-1)/(W-1)), torch.Tensor([W-0.5])),dim=0)
+                    )
+            ref_y = ref_y.reshape(-1)[None] / H
+            ref_x = ref_x.reshape(-1)[None] / W
+            ref_2d = torch.stack((ref_x, ref_y), -1)
+            ref_2d = ref_2d.repeat(bs, 1, 1).unsqueeze(2)
+            return ref_2d
+
+    @staticmethod
+    def get_reference_points_bak(H, W, Z=8, num_points_in_pillar=4, dim='3d', bs=1, device='cuda', dtype=torch.float):
+        """Get the reference points used in SCA and TSA.
+        Args:
+            H, W: spatial shape of bev.
+            Z: hight of pillar.
+            D: sample D points uniformly from each pillar.
+            device (obj:`device`): The device where
+                reference_points should be.
+        Returns:
+            Tensor: reference points used in decoder, has \
+                shape (bs, num_keys, num_levels, 2).
+        """
 
         # reference points in 3D space, used in spatial cross-attention (SCA)
         if dim == '3d':
@@ -92,11 +128,13 @@ class BEVFormerEncoder(TransformerLayerSequence):
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
 
-        lidar2img = []
-        for img_meta in img_metas:
-            lidar2img.append(img_meta['lidar2img'])
-        lidar2img = np.asarray(lidar2img)
-        lidar2img = reference_points.new_tensor(lidar2img)  # (B, N, 4, 4)
+        # lidar2img = []
+        # for img_meta in img_metas:
+        #     lidar2img.append(img_meta['lidar2img'])
+        # lidar2img = np.asarray(lidar2img)
+        # lidar2img = reference_points.new_tensor(lidar2img)  # (B, N, 4, 4)
+        # import pdb; pdb.set_trace()
+        lidar2img = img_metas[0]['lidar2img']
         reference_points = reference_points.clone()
 
         reference_points[..., 0:1] = reference_points[..., 0:1] * \
@@ -115,16 +153,14 @@ class BEVFormerEncoder(TransformerLayerSequence):
 
         reference_points = reference_points.view(
             D, B, 1, num_query, 4).repeat(1, 1, num_cam, 1, 1).unsqueeze(-1)
-
         lidar2img = lidar2img.view(
             1, B, num_cam, 1, 4, 4).repeat(D, 1, 1, num_query, 1, 1)
-
         reference_points_cam = torch.matmul(lidar2img.to(torch.float32),
                                             reference_points.to(torch.float32)).squeeze(-1)
         eps = 1e-5
 
         bev_mask = (reference_points_cam[..., 2:3] > eps)
-        reference_points_cam = reference_points_cam[..., 0:2] / torch.maximum(
+        reference_points_cam = reference_points_cam[..., 0:2] / torch.max(
             reference_points_cam[..., 2:3], torch.ones_like(reference_points_cam[..., 2:3]) * eps)
 
         reference_points_cam[..., 0] /= img_metas[0]['img_shape'][0][1]
@@ -135,7 +171,8 @@ class BEVFormerEncoder(TransformerLayerSequence):
                     & (reference_points_cam[..., 0:1] < 1.0)
                     & (reference_points_cam[..., 0:1] > 0.0))
         if digit_version(TORCH_VERSION) >= digit_version('1.8'):
-            bev_mask = torch.nan_to_num(bev_mask)
+            # bev_mask = torch.nan_to_num(bev_mask)
+            pass
         else:
             bev_mask = bev_mask.new_tensor(
                 np.nan_to_num(bev_mask.cpu().numpy()))

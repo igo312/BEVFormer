@@ -5,13 +5,36 @@ import torch.nn as nn
 from mmcv.cnn import Linear, bias_init_with_prob
 from mmcv.utils import TORCH_VERSION, digit_version
 from mmdet.core import (multi_apply, multi_apply, reduce_mean)
-from mmdet.models.utils.transformer import inverse_sigmoid
+# from mmdet.models.utils.transformer import inverse_sigmoid
 from mmdet.models import HEADS
 from mmdet.models.dense_heads import DETRHead
 from mmdet3d.core.bbox.coders import build_bbox_coder
 from projects.mmdet3d_plugin.core.bbox.util import normalize_bbox
 from mmcv.runner import force_fp32, auto_fp16
 
+def inverse_sigmoid(x, eps=1e-5):
+    """Inverse function of sigmoid.
+    Args:
+        x (Tensor): The tensor to do the
+            inverse.
+        eps (float): EPS avoid numerical
+            overflow. Defaults 1e-5.
+    Returns:
+        Tensor: The x has passed the inverse
+            function of sigmoid, has same
+            shape with input.
+    """
+    #x = x.clamp(min=0, max=1)
+    x[x<0] = 0
+    x[x>1] = 1
+    #x1 = x#.clamp(min=eps)
+    x1 = x.clone()
+    x1[x1<eps] = eps
+    #x2 = (1 - x).clamp(min=eps)
+    x2 = (1-x).clone()
+    x2[x2<eps] = eps
+    #return x1# / x2
+    return torch.log(x1 / x2)
 
 @HEADS.register_module()
 class BEVFormerHead(DETRHead):
@@ -500,7 +523,7 @@ class BEVFormerHead(DETRHead):
             bboxes[:, 2] = bboxes[:, 2] - bboxes[:, 5] * 0.5
 
             code_size = bboxes.shape[-1]
-            bboxes = img_metas[i]['box_type_3d'](bboxes, code_size)
+            # bboxes = img_metas[i]['box_type_3d'](bboxes, code_size)
             scores = preds['scores']
             labels = preds['labels']
 

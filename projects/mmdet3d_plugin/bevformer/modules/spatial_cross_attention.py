@@ -24,6 +24,8 @@ from mmcv.utils import ext_loader
 from .multi_scale_deformable_attn_function import MultiScaleDeformableAttnFunction_fp32, \
     MultiScaleDeformableAttnFunction_fp16
 from projects.mmdet3d_plugin.models.utils.bricks import run_time
+import numpy as np 
+
 ext_module = ext_loader.load_ext(
     '_ext', ['ms_deform_attn_backward', 'ms_deform_attn_forward'])
 
@@ -149,8 +151,10 @@ class SpatialCrossAttention(BaseModule):
         for j in range(bs):
             for i, reference_points_per_img in enumerate(reference_points_cam):   
                 index_query_per_img = indexes[i]
-                queries_rebatch[j, i, :len(index_query_per_img)] = query[j, index_query_per_img]
-                reference_points_rebatch[j, i, :len(index_query_per_img)] = reference_points_per_img[j, index_query_per_img]
+                # queries_rebatch[j, i, :len(index_query_per_img)] = query[j, index_query_per_img]
+                queries_rebatch[j, i, :len(index_query_per_img)] = query[j, np.array(index_query_per_img)]
+                # reference_points_rebatch[j, i, :len(index_query_per_img)] = reference_points_per_img[j, index_query_per_img]
+                reference_points_rebatch[j, i, :len(index_query_per_img)] = reference_points_per_img[j, np.array(index_query_per_img)]
 
         num_cams, l, bs, embed_dims = key.shape
 
@@ -164,11 +168,13 @@ class SpatialCrossAttention(BaseModule):
                                             level_start_index=level_start_index).view(bs, self.num_cams, max_len, self.embed_dims)
         for j in range(bs):
             for i, index_query_per_img in enumerate(indexes):
+                index_query_per_img = np.array(index_query_per_img)
                 slots[j, index_query_per_img] += queries[j, i, :len(index_query_per_img)]
 
         count = bev_mask.sum(-1) > 0
         count = count.permute(1, 2, 0).sum(-1)
-        count = torch.clamp(count, min=1.0)
+        # count = torch.clamp(count, min=1.0)
+        count[count<1]=1
         slots = slots / count[..., None]
         slots = self.output_proj(slots)
 

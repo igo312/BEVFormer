@@ -26,6 +26,7 @@ from functools import partial
 sys.path.insert(0, "/home/keke/code/denglin/hk/bevformer/BEVFormer-master")
 import onnx 
 import onnxsim 
+from projects.mmdet3d_plugin.bevformer.apis.test import custom_multi_gpu_test_onnx
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -187,22 +188,36 @@ def main():
     # build the model and load checkpoint
     cfg.model.train_cfg = None
     model = build_model(cfg.model, test_cfg=cfg.get('test_cfg'))
-    model.forward = partial(model.forward, return_loss=False, img_metas=None)
-    dummpy_inp = torch.zeros([1,3,1333,800], dtype=torch.float32)
-    torch.onnx.export(model,
-                      dummpy_inp,
-                      "./bevformer_1333x800.onnx",
-                      input_names=["input"],
-                      export_params=True,
-                      do_constant_folding=True,
-                      verbose=False,
-                      opset_version=11)
-    model = onnx.load("./bevformer_1333x800.onnx")
-    model_simp, check = onnxsim.simplify(model)
+    # model = MMDataParallel(model, device_ids=[0])
+    model.eval()
+    with torch.no_grad():
+        inputs = {}
+        dummy_inp = torch.randn([1, 1, 6,3,736,1280], dtype=torch.float32)
+        inputs['img'] = dummy_inp
+        inputs['img_metas'] = [1]
+        inputs['img_metas'][0] = [1]
+        inputs['img_metas'][0][0] = {}
+        inputs['img_metas'][0][0]['can_bus'] = torch.randn(18, dtype=torch.float32) #torch.randn(18)#.cuda()
+        inputs['img_metas'][0][0]['lidar2img'] = torch.randn((1,6,4,4), dtype=torch.float32) #torch.randn(1,6,4,4)#.cuda()
+        inputs['img_metas'][0][0]['scene_token'] = 'fcbccedd61424f1b85dcbf8f897f9754'
+        inputs['img_metas'][0][0]['img_shape'] = torch.Tensor([[480,800]])
+        # result = model(inputs)
+        # import pdb; pdb.set_trace()
+        torch.onnx.export(model,
+                        inputs,
+                        "./bevformer_1333x800.onnx",
+                        input_names=["input"],
+                        keep_initializers_as_inputs=True,
+                        export_params=True,
+                        do_constant_folding=True,
+                        verbose=False,
+                        opset_version=11)
+        model = onnx.load("./bevformer_1333x800.onnx")
+        model_simp, check = onnxsim.simplify(model)
 
-    assert check, "Simplified ONNX model could not be validated"
-    onnx.save(model_simp, "bevformer_1333x800.sim.onnx")
-    # checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
+        assert check, "Simplified ONNX model could not be validated"
+        onnx.save(model_simp, "bevformer_1333x800.sim.onnx")
+        # checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
     
    
 

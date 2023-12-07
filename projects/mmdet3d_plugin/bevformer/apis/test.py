@@ -22,6 +22,61 @@ import mmcv
 import numpy as np
 import pycocotools.mask as mask_util
 
+def custom_multi_gpu_test_onnx(model, data_loader,tmpdir=None, gpu_collect=False):
+    """Test model with multiple gpus.
+    This method tests model with multiple gpus and collects the results
+    under two different modes: gpu and cpu modes. By setting 'gpu_collect=True'
+    it encodes results to gpu tensors and use gpu communication for results
+    collection. On cpu mode it saves the results on different gpus to 'tmpdir'
+    and collects them by the rank 0 worker.
+    Args:
+        model (nn.Module): Model to be tested.
+        data_loader (nn.Dataloader): Pytorch data loader.
+        tmpdir (str): Path of directory to save the temporary results from
+            different gpus under cpu mode.
+        gpu_collect (bool): Option to use either gpu or cpu to collect results.
+    Returns:
+        list: The prediction results.
+    """
+    model.eval()
+    bbox_results = []
+    mask_results = []
+    dataset = data_loader.dataset
+    rank, world_size = get_dist_info()
+    if rank == 0:
+        prog_bar = mmcv.ProgressBar(len(dataset))
+    time.sleep(2)  # This line can prevent deadlock problem in some cases.
+    have_mask = False
+    
+    repetitions = 100
+    for i, data in enumerate(data_loader):
+        
+        with torch.no_grad():
+            inputs = {}
+            inputs['img'] = data['img'][0].data[0].float().unsqueeze(0) #torch.randn(6,3,736,1280)#.cuda()
+            #inputs['return_loss'] = False
+            inputs['img_metas'] = [1]
+            inputs['img_metas'][0] = [1]
+            inputs['img_metas'][0][0] = {}
+            inputs['img_metas'][0][0]['can_bus'] = torch.from_numpy(data['img_metas'][0].data[0][0]['can_bus']).float()#torch.randn(18)#.cuda()
+            inputs['img_metas'][0][0]['lidar2img'] = torch.from_numpy(np.array(data['img_metas'][0].data[0][0]['lidar2img'])).float().unsqueeze(0)#torch.randn(1,6,4,4)#.cuda()
+            inputs['img_metas'][0][0]['scene_token'] = 'fcbccedd61424f1b85dcbf8f897f9754'
+            inputs['img_metas'][0][0]['img_shape'] = torch.Tensor([[480,800]]) 
+            output_file = '/×××/BEVformer/mmdetection3d/BEVFormer/J5/bevformer_tiny.onnx'
+            torch.onnx.export(
+                model,
+                inputs,
+                output_file,
+                export_params=True,
+                keep_initializers_as_inputs=True,
+                do_constant_folding=False,
+                verbose=False,
+                opset_version=11,
+            )
+ 
+            print(f"ONNX file has been saved in {output_file}")
+            return {0:'1'}
+        
 def custom_encode_mask_results(mask_results):
     """Encode bitmap mask to RLE code. Semantic Masks only
     Args:
