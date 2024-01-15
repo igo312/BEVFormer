@@ -152,9 +152,10 @@ class SpatialCrossAttention(BaseModule):
             for i, reference_points_per_img in enumerate(reference_points_cam):   
                 index_query_per_img = indexes[i]
                 # queries_rebatch[j, i, :len(index_query_per_img)] = query[j, index_query_per_img]
-                queries_rebatch[j, i, :len(index_query_per_img)] = query[j, np.array(index_query_per_img)]
+                # queries_rebatch[j, i, :len(index_query_per_img)] = query[j, np.array(index_query_per_img)]
+                queries_rebatch[j, i, :index_query_per_img.shape[0]] = query[j, np.array(index_query_per_img)]
                 # reference_points_rebatch[j, i, :len(index_query_per_img)] = reference_points_per_img[j, index_query_per_img]
-                reference_points_rebatch[j, i, :len(index_query_per_img)] = reference_points_per_img[j, np.array(index_query_per_img)]
+                reference_points_rebatch[j, i, :index_query_per_img.shape[0]] = reference_points_per_img[j, np.array(index_query_per_img)]
 
         num_cams, l, bs, embed_dims = key.shape
 
@@ -169,7 +170,7 @@ class SpatialCrossAttention(BaseModule):
         for j in range(bs):
             for i, index_query_per_img in enumerate(indexes):
                 index_query_per_img = np.array(index_query_per_img)
-                slots[j, index_query_per_img] += queries[j, i, :len(index_query_per_img)]
+                slots[j, index_query_per_img] += queries[j, i, :index_query_per_img.shape[0]]
 
         count = bev_mask.sum(-1) > 0
         count = count.permute(1, 2, 0).sum(-1)
